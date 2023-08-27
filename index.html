@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>To-Do List</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        .completed {
+            text-decoration: line-through; 
+            color: gray; 
+        }
+    
+        .deleteButton {
+            background-color: #ff5555;
+            color: white;
+            border: none;
+            padding: 5px 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+    
+        .taskText {
+            margin-right: 10px;
+        }
+
+        .taskInput{
+            margin-bottom: 20px;
+        }
+    
+
+        .taskCheckbox {
+            margin-right: 10px; 
+        }
+    </style>
+    
+</head>
+<body>
+<div class="container">
+    <h1>To-Do List</h1>
+        <input type="text" id="taskInput" class="form-control taskInput" placeholder="Enter a new task..."> <!--Input box for Tasks-->
+        <button id="addButton" class="btn btn-primary">Add Task</button>
+    <ul id="taskList">
+        <li class="taskItem">
+            <input type="checkbox" class="taskCheckbox">  <!--Displays sample tasks-->
+            <span class="taskText">Task 1</span>
+            <input type="text" class="editInput" style="display:none;"> 
+            <button class="deleteButton">Delete</button>
+        </li>
+        <li class="taskItem">
+            <input type="checkbox" class="taskCheckbox">
+            <span class="taskText">Task 2</span>
+            <input type="text" class="editInput" style="display:none;"> 
+            <button class="deleteButton">Delete</button>
+        </li>
+    </ul>
+</div>
+
+
+<script>
+    let db;
+    //Establish connecion with our DB that stores the list
+    const openRequest = window.indexedDB.open("ToDoListDB", 1);
+    
+    //Sets up the structure of the database on creation
+    openRequest.addEventListener("upgradeneeded", event => {
+        db = event.target.result;
+    
+        if (!db.objectStoreNames.contains("tasks")) {
+            const objectStore = db.createObjectStore("tasks", { keyPath: "id", autoIncrement: true });
+        }
+    });
+    
+    //On a successful connection it loads the tasks
+    openRequest.addEventListener("success", event => {
+        db = event.target.result;
+        loadTasks();
+    });
+    
+    const addButton = document.getElementById("addButton");
+    addButton.addEventListener("click", () => {
+        const taskInput = document.getElementById("taskInput");
+        const taskText = taskInput.value.trim();
+    
+        if (taskText !== "") {
+            addTaskToDB(taskText);
+            taskInput.value = "";
+        }
+    });
+    
+    // Attach a keydown event listener to the taskInput so Enter can be used
+    const taskInput = document.getElementById("taskInput");
+    taskInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+            addTaskToDB(taskInput.value.trim());
+            taskInput.value = "";
+        }
+    });
+    
+    //Updates the DB with a new task
+    function addTaskToDB(taskText) {
+        const transaction = db.transaction(["tasks"], "readwrite");
+        const objectStore = transaction.objectStore("tasks");
+    
+        const task = { text: taskText, completed: false };
+    
+        const request = objectStore.add(task);
+    
+        request.onsuccess = event => {
+            loadTasks();
+        };
+    }
+    
+    function loadTasks() {
+        const transaction = db.transaction(["tasks"], "readonly");
+        const objectStore = transaction.objectStore("tasks");
+    
+        const request = objectStore.getAll();
+    
+        request.onsuccess = event => {
+            const taskList = document.getElementById("taskList");
+            taskList.innerHTML = "";
+    
+            const tasks = event.target.result;
+            tasks.forEach(task => {
+                const taskItem = createTaskElement(task);
+                taskList.appendChild(taskItem);
+            });
+        };
+    }
+    
+    function createTaskElement(task) {
+        const li = document.createElement("li");
+        const checkbox = document.createElement("input");
+        const taskText = document.createElement("span");
+        const editInput = document.createElement("input");
+        const deleteButton = document.createElement("button");
+    
+        checkbox.type = "checkbox";
+        checkbox.className = "taskCheckbox";
+        checkbox.checked = task.completed;
+    
+        taskText.className = task.completed ? "taskText completed" : "taskText";
+        taskText.textContent = task.text;
+    
+        editInput.type = "text";
+        editInput.className = "editInput";
+        editInput.value = task.text;
+        editInput.style.display = "none";
+    
+        deleteButton.className = "deleteButton";
+        deleteButton.textContent = "Delete";
+    
+        editInput.addEventListener("blur", () => {
+            saveEditedTask(task.id, editInput.value);
+        });
+    
+        li.appendChild(checkbox);
+        li.appendChild(taskText);
+        li.appendChild(editInput);
+        li.appendChild(deleteButton);
+    
+        // Toggle completed status and style
+        checkbox.addEventListener("change", () => {
+            toggleTaskCompletion(task.id, checkbox.checked);
+        });
+    
+        // Delete the task immediately on delete button click
+        deleteButton.addEventListener("click", () => {
+            deleteTask(task.id);
+        });
+    
+        // Toggle between task text and edit input
+        li.addEventListener("click", event => {
+            if (!event.target.classList.contains("taskCheckbox") && !event.target.classList.contains("deleteButton")) {
+                taskText.style.display = "none";
+                editInput.style.display = "inline-block";
+                editInput.focus();
+            }
+        });
+    
+        // Close edit input on pressing Enter
+        editInput.addEventListener("keydown", event => {
+            if (event.key === "Enter") {
+                editInput.blur();
+            }
+        });
+    
+        return li;
+    }
+    
+    //Update the DB when a task is completed
+    function toggleTaskCompletion(taskId, completed) {
+        const transaction = db.transaction(["tasks"], "readwrite");
+        const objectStore = transaction.objectStore("tasks");
+    
+        const request = objectStore.get(taskId);
+    
+        request.onsuccess = event => {
+            const task = event.target.result;
+            task.completed = completed;
+    
+            const updateRequest = objectStore.put(task);
+    
+            updateRequest.onsuccess = () => {
+                loadTasks();
+            };
+        };
+    }
+    
+    //When a task is edited it is saved to the DB
+    function saveEditedTask(taskId, newText) {
+        const transaction = db.transaction(["tasks"], "readwrite");
+        const objectStore = transaction.objectStore("tasks");
+    
+        const request = objectStore.get(taskId);
+    
+        request.onsuccess = event => {
+            const task = event.target.result;
+            task.text = newText;
+    
+            const updateRequest = objectStore.put(task);
+    
+            updateRequest.onsuccess = () => {
+                loadTasks();
+            };
+        };
+    }
+    
+    //Delete task from the DB
+    function deleteTask(taskId) {
+        const transaction = db.transaction(["tasks"], "readwrite");
+        const objectStore = transaction.objectStore("tasks");
+    
+        const request = objectStore.delete(taskId);
+    
+        request.onsuccess = () => {
+            loadTasks();
+        };
+    }
+    </script>
+    
+    
+    
+
+</body>
+</html>
